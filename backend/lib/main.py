@@ -60,6 +60,10 @@ def disconnect(sid):
     # Quit all the drivers in the drivers list
     for driver in drivers:
         driver.quit()
+
+    # Clear the drivers list
+    drivers.clear()
+
     print("disconnect ", sid)
 
 
