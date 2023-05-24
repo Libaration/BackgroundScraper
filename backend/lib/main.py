@@ -2,19 +2,27 @@ from aiohttp import web
 import socketio
 import baltimore_county as scraper
 import multiprocessing
+import asyncio
 
 io = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
 io.attach(app)
-num_workers = 2  # multiprocessing.cpu_count()
+num_workers = multiprocessing.cpu_count()  # 8
 drivers = []
+available_drivers = []
 
 
-def scrape_address(args):
-    address, driver_index = args
-    driver = drivers[driver_index]  # Get the appropriate driver from the drivers list
-    result = scraper.scrape_baltimore_county(address, driver)
-    return result
+def get_driver():
+    if available_drivers:
+        print("Reusing driver")
+        return available_drivers.pop()
+    else:
+        print("Creating new driver")
+        return scraper.start_driver()
+
+
+def release_driver(driver):
+    available_drivers.append(driver)
 
 
 @io.event
@@ -23,7 +31,24 @@ def connect(sid, environ):
 
 
 @io.event
+def disconnect(sid):
+    print("disconnect ", sid)
+    drivers.clear()
+    available_drivers.clear()
+
+
+async def create_drivers(num_drivers):
+    new_drivers = []
+    for _ in range(num_drivers):
+        new_driver = await asyncio.to_thread(scraper.start_driver)
+        new_drivers.append(new_driver)
+    return new_drivers
+
+
+@io.event
 async def scrape_baltimore_county(sid, data):
+    global drivers
+    global num_workers
     addresses = data["addresses"]
     results = []
 
@@ -34,37 +59,28 @@ async def scrape_baltimore_county(sid, data):
     # Check if the number of drivers in the list matches the required number
     if len(drivers) < num_drivers:
         # Create additional drivers
-        for _ in range(num_drivers - len(drivers)):
-            new_driver = scraper.start_driver()
-            drivers.append(new_driver)
+        new_drivers = await create_drivers(num_drivers - len(drivers))
+        drivers.extend(new_drivers)
+        available_drivers.extend(new_drivers)
 
-    if num_addresses > 1:
-        # Create a list of tuples where each tuple contains an address and the corresponding driver index
-        address_driver_pairs = [
-            (address, i % num_drivers) for i, address in enumerate(addresses)
-        ]
+    # Loop over the list of addresses and scrape each one individually
+    for address in addresses:
+        driver = get_driver()
+        try:
+            # use with statement to ensure driver is closed even if an exception occurs
 
-        with multiprocessing.Pool(num_drivers) as pool:
-            results = pool.map(scrape_address, address_driver_pairs)
-    else:
-        # Only one address, use the first driver
-        driver = drivers[0]
-        result = scraper.scrape_baltimore_county(addresses[0], driver)
-        results.append(result)
+            result = await asyncio.to_thread(
+                scraper.scrape_baltimore_county, address, driver
+            )
+            await io.emit("baltimore_county_scrape_result", result)
+        except Exception as e:
+            print(f"Error scraping {address}: {e}")
+        finally:
+            # release the driver back to the pool
+            print(f"Releasing driver for {address}")
+            release_driver(driver)
 
-    return results
-
-
-@io.event
-def disconnect(sid):
-    # Quit all the drivers in the drivers list
-    for driver in drivers:
-        driver.quit()
-
-    # Clear the drivers list
-    drivers.clear()
-
-    print("disconnect ", sid)
+    # await io.emit("baltimore_county_scrape_results", results)
 
 
 if __name__ == "__main__":

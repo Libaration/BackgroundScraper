@@ -6,7 +6,6 @@ function App() {
   const [id, setId] = useState("");
   const [response, setResponse] = useState([]);
   const renderResponse = () => {
-    console.log(response);
     return response.map((property) => {
       return Object.keys(property).map((key) => {
         return (
@@ -23,8 +22,12 @@ function App() {
       console.log(socket.id);
       setId(socket.id);
     });
+    socket.on("baltimore_county_scrape_result", (data) => {
+      console.log(data);
+    });
     return () => {
       socket.off("connect");
+      socket.off("baltimore_county_scrape_result");
     };
   }, []);
 
@@ -33,15 +36,14 @@ function App() {
       <h1>Socket ID: {id}</h1>
       <button
         onClick={() =>
-          socket.emit(
-            "scrape_baltimore_county",
-            {
-              addresses: ["920 S Conkling St"],
-            },
-            (response) => {
-              setResponse(response);
-            }
-          )
+          socket.emit("scrape_baltimore_county", {
+            addresses: [
+              "920 S Conkling St",
+              "3430 MCSHANE WAY",
+              "3438 MCSHANE WAY",
+              "3548 MCSHANE WAY",
+            ],
+          })
         }
       >
         Scrape Baltimore County Property
