@@ -8,7 +8,6 @@ import urllib.request
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-import uuid
 import pdb
 
 
@@ -114,6 +113,7 @@ def scrape_baltimore_county(address, driver):
             if len(key) == 2:
                 data[key[0].text.strip()] = key[1].text.strip()
             data[key[0].text.strip()] = key[1].text.strip()
+        print("Retrieved data for address " + address)
         return data
     except Exception as e:
         print(f"Error scraping baltimore county: {e}")
