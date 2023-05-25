@@ -1,28 +1,11 @@
-from time import sleep
-from selenium import webdriver
-import chromedriver_autoinstaller as chromedriver
 from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 import urllib.parse
 import urllib.request
 from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 import pdb
 import asyncio
-
-
-def start_driver():
-    chromedriver.install()
-    options = Options()
-    options.page_load_strategy = "none"
-    options.add_argument("--headless")
-    try:
-        driver = webdriver.Chrome(options=options)
-    except Exception as e:
-        print(f"Error starting WebDriver: {e}")
-        driver = None
-    return driver
 
 
 def fetchAccountNumber(address):
