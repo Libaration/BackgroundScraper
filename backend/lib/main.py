@@ -1,20 +1,21 @@
 from aiohttp import web
 import socketio
 import baltimore_county as scraper
-import multiprocessing
 import asyncio
 import threading
 import datetime
-from asyncio import Queue
+import tornado
+
 
 #
 # Create the Socket.IO server
-io = socketio.AsyncServer(cors_allowed_origins="*")
-app = web.Application()
-io.attach(app)
+io = socketio.AsyncServer(async_mode="tornado", cors_allowed_origins="*")
+app = tornado.web.Application(
+    [
+        (r"/socket.io/", socketio.get_tornado_handler(io)),
+    ],
+)
 
-# Get the number of CPU cores
-num_workers = 100  # 8
 
 # Initialize driver-related variables
 available_drivers = []
@@ -47,26 +48,23 @@ def get_driver():
 
 def release_driver(driver):
     """Release the driver and make it available for reuse."""
-    with driver_lock:
-        available_drivers.append(driver)
-        log(f"Driver released: {driver}")
+    available_drivers.append(driver)
+    log(f"Driver released: {driver}")
 
 
 @io.event
 def connect(sid, environ):
     """Handle the connection of a new client."""
     print("connect ", sid)
-    with driver_lock:
-        connected_clients.add(sid)
+    connected_clients.add(sid)
 
 
 @io.event
 def disconnect(sid):
     """Handle the disconnection of a client."""
     print("disconnect ", sid)
-    with driver_lock:
-        connected_clients.remove(sid)
-        available_drivers.clear()
+    connected_clients.remove(sid)
+    available_drivers.clear()
 
 
 async def create_driver():
@@ -119,4 +117,5 @@ async def scrape_baltimore_county(sid, data):
 
 if __name__ == "__main__":
     # Start the web server
-    web.run_app(app, port=1337)
+    app.listen(1337)
+    tornado.ioloop.IOLoop.current().start()
