@@ -5,15 +5,16 @@ import multiprocessing
 import asyncio
 import threading
 import datetime
+from asyncio import Queue
 
-
+#
 # Create the Socket.IO server
 io = socketio.AsyncServer(cors_allowed_origins="*")
 app = web.Application()
 io.attach(app)
 
 # Get the number of CPU cores
-num_workers = multiprocessing.cpu_count()  # 8
+num_workers = 100  # 8
 
 # Initialize driver-related variables
 available_drivers = []
@@ -55,20 +56,40 @@ def release_driver(driver):
 def connect(sid, environ):
     """Handle the connection of a new client."""
     print("connect ", sid)
-    connected_clients.add(sid)
+    with driver_lock:
+        connected_clients.add(sid)
 
 
 @io.event
 def disconnect(sid):
     """Handle the disconnection of a client."""
     print("disconnect ", sid)
-    connected_clients.remove(sid)
-    available_drivers.clear()
+    with driver_lock:
+        connected_clients.remove(sid)
+        available_drivers.clear()
 
 
 async def create_driver():
     """Create a new driver in an asynchronous thread."""
     return await asyncio.to_thread(scraper.start_driver)
+
+
+async def scrape_single_address(address, sid):
+    """Scrape the property data for a single address."""
+    driver = get_driver()
+    try:
+        result = await scraper.scrape_baltimore_county(address, driver)
+        if result is not None:
+            print(f"Result for {address}: {result}")
+            print("sid ", sid)
+            print("connected_clients ", connected_clients)
+            if sid in connected_clients:
+                return {"address": address, "result": result}
+    except Exception as e:
+        print(f"Error scraping {address}: {e}")
+    finally:
+        print(f"Releasing driver for {address}")
+        release_driver(driver)
 
 
 @io.event
@@ -81,38 +102,19 @@ async def scrape_baltimore_county(sid, data):
 
     This function performs the scraping concurrently for each address.
     """
-    global drivers
-    global num_workers
     addresses = data["addresses"]
 
-    async def scrape_single_address(address):
-        """Scrape the property data for a single address."""
-        driver = get_driver()
-        try:
-            result = await asyncio.to_thread(
-                scraper.scrape_baltimore_county, address, driver
-            )
-            print(f"Result for {address}: {result}")
-            print("sid ", sid)
-            print("connected_clients ", connected_clients)
-            if sid in connected_clients:
-                await io.emit("baltimore_county_scrape_result", result, room=sid)
-                print(f"Sent result for {address}")
-        except Exception as e:
-            print(f"Error scraping {address}: {e}")
-        finally:
-            print(f"Releasing driver for {address}")
+    async def emit_result(result):
+        await io.emit("baltimore_county_scrape_result", result, room=sid)
+        print(f"Sent result: {result}")
 
-    tasks = []
-    for address in addresses:
-        tasks.append(scrape_single_address(address))
+    async def process_addresses():
+        for address in addresses:
+            result = await scrape_single_address(address, sid)
+            if result is not None:
+                await emit_result(result)
 
-    await asyncio.gather(*tasks)
-
-    # Release the drivers after all tasks are completed
-    for address in addresses:
-        driver = get_driver()
-        release_driver(driver)
+    await process_addresses()
 
 
 if __name__ == "__main__":

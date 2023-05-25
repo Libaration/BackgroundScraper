@@ -5,10 +5,11 @@ from bs4 import BeautifulSoup
 from selenium.webdriver.common.by import By
 import urllib.parse
 import urllib.request
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
 import pdb
+import asyncio
 
 
 def start_driver():
@@ -52,8 +53,12 @@ def fetchAccountNumber(address):
         return response_text
 
 
-def pickAccountNumber(address):
-    root = BeautifulSoup(fetchAccountNumber(address), "html.parser")
+async def pickAccountNumber(address):
+    loop = asyncio.get_running_loop()
+    account_number_response_html = await loop.run_in_executor(
+        None, fetchAccountNumber, address
+    )
+    root = BeautifulSoup(account_number_response_html, "html.parser")
     table = root.table
     rows = table.find_all("tr")
     # ignore all the rows that don't have a td
@@ -75,10 +80,13 @@ def pickAccountNumber(address):
         return accountNumber
 
 
-def scrape_baltimore_county(address, driver):
+async def scrape_baltimore_county(address, driver):
     try:
-        account_number = pickAccountNumber(address)
+        account_number = await pickAccountNumber(address)
         driver.get("https://pay.baltimorecity.gov/water")
+        WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.ID, "accountNumber"))
+        )
         script = f'document.getElementById("accountNumber").value = "{account_number}";'
         driver.execute_script(script)
         enableButtonManually = (
@@ -89,7 +97,7 @@ def scrape_baltimore_county(address, driver):
             f'document.getElementById("buttonSubmitAccountNumber").click();'
         )
 
-        WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 5).until(
             EC.presence_of_element_located((By.CLASS_NAME, "table-striped"))
         )
         root = BeautifulSoup(driver.page_source, "html.parser")
