@@ -80,7 +80,7 @@ async def pickAccountNumber(address):
         return accountNumber
 
 
-async def scrape_baltimore_county(address, driver):
+async def baltimore_find_account_id_and_scrape(address, driver):
     try:
         account_number = await pickAccountNumber(address)
         driver.get("https://pay.baltimorecity.gov/water")
