@@ -6,9 +6,12 @@ from selenium.webdriver.support.wait import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import pdb
 import asyncio
+from logger import log
+from driver import release_driver, get_driver
 
 
-def fetchAccountNumber(address):
+async def fetchAccountNumber(address):
+    log("debug", f"Fetching account number for address {address}")
     # Set the URL and request body
     url = "https://pay.baltimorecity.gov/water/_getInfoByServiceAddress"
     data = urllib.parse.urlencode({"serviceAddress": address}).encode("utf-8")
@@ -37,10 +40,8 @@ def fetchAccountNumber(address):
 
 
 async def pickAccountNumber(address):
-    loop = asyncio.get_running_loop()
-    account_number_response_html = await loop.run_in_executor(
-        None, fetchAccountNumber, address
-    )
+    log("debug", f"Picking account number for address {address}")
+    account_number_response_html = await fetchAccountNumber(address)
     root = BeautifulSoup(account_number_response_html, "html.parser")
     table = root.table
     rows = table.find_all("tr")
@@ -58,18 +59,19 @@ async def pickAccountNumber(address):
         return accountNumber
     else:
         accountNumber = rows[0].find("td").text
-        print("Found one account for address " + address)
-        print(f"Using account number {accountNumber}")
+        log("success", f"Found account number {accountNumber}")
+        log("success", f"Using Account number: {accountNumber}")
         return accountNumber
 
 
 async def baltimore_find_account_id_and_scrape(address, driver):
+    log("debug", f"Beginning scraping for {address}")
+    while driver is None:
+        driver = await get_driver()
+
     try:
         account_number = await pickAccountNumber(address)
         driver.get("https://pay.baltimorecity.gov/water")
-        WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.ID, "accountNumber"))
-        )
         script = f'document.getElementById("accountNumber").value = "{account_number}";'
         driver.execute_script(script)
         enableButtonManually = (
@@ -104,8 +106,13 @@ async def baltimore_find_account_id_and_scrape(address, driver):
             if len(key) == 2:
                 data[key[0].text.strip()] = key[1].text.strip()
             data[key[0].text.strip()] = key[1].text.strip()
-        print("Retrieved data for address " + address)
+        log("success", f"Finished scraping for {address}")
+        await release_driver(driver)
+        log("success", f"Scraped Data:  {data}")
         return data
     except Exception as e:
-        print(f"Error scraping baltimore county: {e}")
+        log("error", f"Error scraping baltimore county: {e}")
+        import traceback
+
+        traceback.print_exc()
         return None

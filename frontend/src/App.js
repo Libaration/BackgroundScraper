@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 function App() {
   const [id, setId] = useState("");
   const [response, setResponse] = useState([]);
+  const [driverCount, setDriverCount] = useState(0);
   const renderResponse = () => {
     return response.map((property) => {
       return Object.keys(property).map((key) => {
@@ -25,19 +26,21 @@ function App() {
     socket.on("baltimore_county_scrape_result", (data) => {
       console.log(data);
     });
-    socket.on("test", (data) => {
-      console.log("Received test event:", data);
+    socket.on("driver_count", (amountOfDrivers) => {
+      setDriverCount(amountOfDrivers);
     });
 
     return () => {
       socket.off("connect");
       socket.off("baltimore_county_scrape_result");
+      socket.off("driver_count");
     };
   }, []);
 
   return (
     <div className="App">
       <h1>Socket ID: {id}</h1>
+      <h1>Driver Count: {driverCount}</h1>
       <button
         onClick={() =>
           socket.emit("scrape_baltimore_county", {

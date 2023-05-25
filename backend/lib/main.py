@@ -1,19 +1,28 @@
-from aiohttp import web
 from logger import log
-from driver import get_driver, release_driver, available_drivers
+from driver import get_driver, clear_driver_queue, start_driver
 from baltimore_county import baltimore_find_account_id_and_scrape
-import socketio
-import tornado
+from socket_server import io, main
+import asyncio
+
 
 # Initialize variables
 connected_clients = set()
-# Create the Socket.IO server
-io = socketio.AsyncServer(async_mode="tornado", cors_allowed_origins="*")
-app = tornado.web.Application(
-    [
-        (r"/socket.io/", socketio.get_tornado_handler(io)),
-    ],
-)
+
+
+async def scrape_single_address(address, sid):
+    """Scrape the property data for a single address."""
+    driver = await get_driver()
+    try:
+        result = await baltimore_find_account_id_and_scrape(address, driver)
+        if result is not None:
+            log("success", f"Retrieved data for address {address}")
+            log("debug", f"Socket ID: {sid}")
+            log("debug", f"Connected clients: {connected_clients}")
+            if sid in connected_clients:
+                return {"address": address, "result": result}
+
+    except Exception as e:
+        log("error", f"Error scraping {address}: {e}")
 
 
 @io.event
@@ -28,25 +37,7 @@ def disconnect(sid):
     """Handle the disconnection of a client."""
     log("error", f"Client disconnected: {sid}")
     connected_clients.remove(sid)
-    available_drivers.clear()
-
-
-async def scrape_single_address(address, sid):
-    """Scrape the property data for a single address."""
-    driver = get_driver()
-    try:
-        result = await baltimore_find_account_id_and_scrape(address, driver)
-        if result is not None:
-            log("success", f"Retrieved data for address {address}")
-            log("debug", f"Socket ID: {sid}")
-            log("debug", f"Connected clients: {connected_clients}")
-            if sid in connected_clients:
-                return {"address": address, "result": result}
-    except Exception as e:
-        log("error", f"Error scraping {address}: {e}")
-    finally:
-        log("debug", f"Releasing driver for {address}")
-        release_driver(driver)
+    clear_driver_queue()
 
 
 @io.event
@@ -63,7 +54,7 @@ async def scrape_baltimore_county(sid, data):
 
     async def emit_result(result):
         await io.emit("baltimore_county_scrape_result", result, room=sid)
-        log("success", f"Sent result: {result}")
+        log("success", f"Sent result for address {result['address']}")
 
     async def process_addresses():
         for address in addresses:
@@ -77,5 +68,8 @@ async def scrape_baltimore_county(sid, data):
 
 if __name__ == "__main__":
     # Start the web server
-    app.listen(1337)
-    tornado.ioloop.IOLoop.current().start()
+    # async def main_async():
+    #     await asyncio.gather(main(), start_driver())
+
+    # asyncio.run(main_async())
+    asyncio.run(main())
